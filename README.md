@@ -1,1 +1,1 @@
-# Gr-ficasComputadora
+# GraficasComputadora
