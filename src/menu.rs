@@ -3,6 +3,7 @@
 // mapear despues las mismas acciones a un gamepad.
 use raylib::prelude::*;
 
+use crate::assets::Assets;
 use crate::levels::{LEVELS, LEVEL_COUNT};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
@@ -51,8 +52,28 @@ pub fn interact(rl: &RaylibHandle, count: usize, index: &mut usize) -> Option<us
     None
 }
 
-fn draw_title(d: &mut RaylibDrawHandle, title: &str, subtitle: &str) {
+fn draw_title(d: &mut RaylibDrawHandle, title: &str, subtitle: &str, assets: &Assets) {
     d.clear_background(Color::new(16, 16, 22, 255));
+
+    // Con arte: fondo y personaje del menu. Sin arte: fondo liso actual.
+    if let Some(tex) = assets.menu_background.as_ref() {
+        d.draw_texture_pro(
+            tex,
+            Rectangle::new(0.0, 0.0, tex.width as f32, tex.height as f32),
+            Rectangle::new(0.0, 0.0, WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32),
+            Vector2::zero(),
+            0.0,
+            Color::WHITE,
+        );
+    }
+    if let Some(tex) = assets.menu_character.as_ref() {
+        d.draw_texture(
+            tex,
+            WINDOW_WIDTH - tex.width - 20,
+            WINDOW_HEIGHT - tex.height - 20,
+            Color::WHITE,
+        );
+    }
     let size = 60;
     let w = d.measure_text(title, size);
     d.draw_text(title, WINDOW_WIDTH / 2 - w / 2, 90, size, Color::GOLD);
@@ -89,14 +110,14 @@ fn draw_button(d: &mut RaylibDrawHandle, i: usize, label: &str, selected: bool, 
     );
 }
 
-pub fn draw_main_menu(d: &mut RaylibDrawHandle, index: usize) {
-    draw_title(d, "DESCENT", "ENTER / CLICK PARA SELECCIONAR");
+pub fn draw_main_menu(d: &mut RaylibDrawHandle, index: usize, assets: &Assets) {
+    draw_title(d, "DESCENT", "ENTER / CLICK PARA SELECCIONAR", assets);
     draw_button(d, 0, "PLAY", index == 0, false);
     draw_button(d, 1, "QUIT", index == 1, false);
 }
 
-pub fn draw_level_select(d: &mut RaylibDrawHandle, index: usize, unlocked: usize) {
-    draw_title(d, "LEVEL SELECT", "ESC PARA VOLVER AL MENU");
+pub fn draw_level_select(d: &mut RaylibDrawHandle, index: usize, unlocked: usize, assets: &Assets) {
+    draw_title(d, "LEVEL SELECT", "ESC PARA VOLVER AL MENU", assets);
     for i in 0..LEVEL_COUNT {
         let locked = i >= unlocked;
         let label = if locked {

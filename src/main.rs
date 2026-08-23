@@ -1,5 +1,6 @@
 // Proyecto 1 - Raycaster estilo retro (motor base)
 mod app;
+mod assets;
 mod enemy;
 mod entities;
 mod game;
@@ -14,6 +15,7 @@ mod raycaster;
 mod renderer;
 
 use app::App;
+use assets::Assets;
 
 // --- Configuracion global del motor -----------------------------------------
 // Resolucion moderada 16:9: barata de renderizar y facil de portar.
@@ -39,6 +41,10 @@ fn main() {
     // ESC ya no cierra la ventana: cada estado decide que hace con ESC.
     rl.set_exit_key(None);
 
+    // Los recursos se cargan UNA sola vez, antes del bucle. Lo que no
+    // exista queda como fallback geometrico.
+    let assets = Assets::load(&mut rl, &thread);
+
     let mut app = App::new();
 
     while !rl.window_should_close() && !app.quit {
@@ -50,6 +56,6 @@ fn main() {
 
         let fps = rl.get_fps();
         let mut d = rl.begin_drawing(&thread);
-        app.render(&mut d, fps);
+        app.render(&mut d, fps, &assets);
     }
 }

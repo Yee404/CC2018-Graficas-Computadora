@@ -1,6 +1,7 @@
 // Maquina de estados de la aplicacion: menu, selector, gameplay y fin de nivel.
 use raylib::prelude::*;
 
+use crate::assets::Assets;
 use crate::game::{self, Game};
 use crate::levels::{LEVELS, LEVEL_COUNT};
 use crate::menu;
@@ -139,24 +140,26 @@ impl App {
         }
     }
 
-    pub fn render(&self, d: &mut RaylibDrawHandle, fps: u32) {
+    pub fn render(&self, d: &mut RaylibDrawHandle, fps: u32, assets: &Assets) {
         match self.state {
-            State::MainMenu => menu::draw_main_menu(d, self.main_index),
-            State::LevelSelect => menu::draw_level_select(d, self.select_index, self.unlocked),
+            State::MainMenu => menu::draw_main_menu(d, self.main_index, assets),
+            State::LevelSelect => {
+                menu::draw_level_select(d, self.select_index, self.unlocked, assets)
+            }
             State::Playing => {
                 if let Some(g) = self.game.as_ref() {
-                    g.render(d, fps);
+                    g.render(d, fps, assets);
                 }
             }
             State::LevelComplete => {
                 if let Some(g) = self.game.as_ref() {
-                    g.render(d, fps); // nivel congelado de fondo
+                    g.render(d, fps, assets); // nivel congelado de fondo
                     menu::draw_level_complete(d, LEVELS[self.current_level].id, &g.summary());
                 }
             }
             State::GameOver => {
                 if let Some(g) = self.game.as_ref() {
-                    g.render(d, fps); // nivel congelado de fondo
+                    g.render(d, fps, assets); // nivel congelado de fondo
                     menu::draw_game_over(d);
                 }
             }

@@ -1,6 +1,7 @@
 // Estado del juego y separacion INPUT / UPDATE / RENDER.
 use raylib::prelude::*;
 
+use crate::assets::Assets;
 use crate::enemy::{self, Enemy, REPATH_INTERVAL};
 use crate::entities::{Entity, EntityKind};
 use crate::hunter::{self, Hunter};
@@ -90,6 +91,8 @@ pub struct Game {
     items_deposited: bool,
     health: f32,
     damage_flash: f32,
+    /// Tiempo acumulado con delta time; de aqui sale el frame de animacion.
+    anim_time: f32,
     level_complete: bool,
     at_goal: bool,
     near_deposit: bool,
@@ -171,6 +174,7 @@ impl Game {
             items_deposited: false,
             health: MAX_HEALTH,
             damage_flash: 0.0,
+            anim_time: 0.0,
             level_complete: false,
             at_goal: false,
             near_deposit: false,
@@ -199,6 +203,7 @@ impl Game {
         self.check_objective();
 
         self.damage_flash = (self.damage_flash - dt * 2.0).max(0.0);
+        self.anim_time += dt;
 
         raycaster::cast_all(
             &self.maze,
@@ -416,8 +421,8 @@ impl Game {
         None
     }
 
-    pub fn render(&self, d: &mut RaylibDrawHandle, fps: u32) {
-        renderer::draw_world(d, &self.hits, self.level);
+    pub fn render(&self, d: &mut RaylibDrawHandle, fps: u32, assets: &Assets) {
+        renderer::draw_world(d, &self.hits, self.level, assets);
         renderer::draw_billboards(
             d,
             &self.hits,
@@ -426,6 +431,8 @@ impl Game {
             &self.enemies,
             self.hunter.as_ref(),
             &self.order,
+            assets,
+            self.anim_time,
         );
         minimap::draw(
             d,
@@ -436,6 +443,12 @@ impl Game {
             self.hunter.as_ref(),
             self.level.objective == LevelObjective::CollectCoinsAndExit,
         );
+
+        // Orden: mundo -> billboards -> minimapa -> overlay -> HUD.
+        // El overlay va antes del HUD para que HIDDEN y E - LEAVE se lean.
+        if self.hidden_in.is_some() {
+            renderer::draw_hideout_overlay(d, assets);
+        }
 
         let hint = if self.hidden_in.is_some() {
             Some("E - LEAVE")
@@ -676,6 +689,31 @@ mod tests {
         );
         run(&mut g, 6.0);
         assert!(!g.is_dead());
+    }
+
+    #[test]
+    fn todos_los_niveles_cargan_con_sus_cantidades() {
+        for level in 0..LEVELS.len() {
+            let g = game(level);
+            assert!(g.maze.width > 0 && g.maze.height > 0);
+            match level {
+                3 => {
+                    assert_eq!(g.items_total, 5);
+                    assert_eq!(g.hideouts.len(), 6);
+                    assert!(g.maze.deposit.is_some());
+                    assert!(g.hunter.is_some());
+                    assert_eq!(g.coins_total, 0);
+                }
+                4 => {
+                    assert_eq!(g.items_total, 7);
+                    assert_eq!(g.hideouts.len(), 3);
+                    assert!(g.maze.deposit.is_some());
+                    assert!(g.hunter.is_some());
+                    assert_eq!(g.coins_total, 0);
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]

@@ -80,6 +80,28 @@ E = enemigo simple    M = monstruo      H = escondite
 archivo por compatibilidad del parser y no se dibuja en el minimapa.
 ```
 
+## Assets
+
+El juego funciona sin ningun archivo grafico: si una textura no existe se usa
+el fallback geometrico (colores solidos). La carpeta `assets/` esta preparada
+para incorporarlos despues:
+
+```
+assets/
+├── textures/   wall_1.png, wall_2.png, wall_3.png
+├── sprites/
+│   ├── coins/  coin.png
+│   ├── items/  item.png
+│   ├── enemies/ enemy.png
+│   └── hunter/ hunter.png, hunter_walk.png (sprite sheet)
+├── ui/         deposit.png, hideout.png, menu_background.png,
+│               menu_character.png, locker_overlay.png
+└── audio/
+```
+
+Los recursos se cargan una sola vez al arrancar (`Assets::load`), nunca dentro
+del bucle de render.
+
 ## Pruebas
 
 Las reglas de objetivo y de escondites tienen pruebas automaticas que no

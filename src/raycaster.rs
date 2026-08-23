@@ -7,6 +7,9 @@ pub struct Hit {
     pub dist: f32, // distancia perpendicular (sin efecto ojo de pez)
     pub tile: u8,  // caracter de la pared golpeada
     pub side: u8,  // 0 = cara vertical (eje X), 1 = cara horizontal (eje Y)
+    /// Posicion 0..1 del impacto a lo largo de la cara golpeada. Todavia no se
+    /// usa con colores solidos; es el dato que necesitara el texturizado.
+    pub wall_x: f32,
 }
 
 impl Hit {
@@ -14,6 +17,7 @@ impl Hit {
         dist: 1.0e6,
         tile: b'#',
         side: 0,
+        wall_x: 0.0,
     };
 }
 
@@ -91,10 +95,21 @@ pub fn cast_ray(maze: &Maze, px: f32, py: f32, rdx: f32, rdy: f32) -> Hit {
             if !dist.is_finite() || dist.is_nan() {
                 return Hit::FAR;
             }
+            let dist = dist.max(0.0001); // nunca cero: evita divisiones invalidas
+
+            // Donde exactamente pego el rayo dentro de la celda (0..1).
+            let hit_pos = if side == 0 {
+                py + dist * rdy
+            } else {
+                px + dist * rdx
+            };
+            let wall_x = hit_pos - hit_pos.floor();
+
             return Hit {
-                dist: dist.max(0.0001), // nunca cero: evita divisiones invalidas
+                dist,
                 tile: maze.tile(map_x, map_y),
                 side,
+                wall_x,
             };
         }
     }

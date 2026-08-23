@@ -1,8 +1,12 @@
 // Render pseudo-3D: cielo, suelo, columnas de pared y billboards de entidades.
-// Todo con colores solidos: la representacion visual es PROVISIONAL, pero la
-// proyeccion y la oclusion no cambiaran al sustituirla por sprites.
+//
+// Cada elemento tiene DOS caminos: si su textura existe en `Assets` se dibuja
+// con ella; si no (situacion actual, todavia sin arte), se usa exactamente el
+// mismo relleno geometrico de color de siempre. La proyeccion, la oclusion y
+// el raycasting son identicos en ambos casos.
 use raylib::prelude::*;
 
+use crate::assets::{Assets, SpriteKind};
 use crate::enemy::Enemy;
 use crate::entities::{Entity, EntityKind};
 use crate::hunter::Hunter;
@@ -12,7 +16,7 @@ use crate::raycaster::Hit;
 use crate::{FOV, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// Color base segun el caracter de la celda (no segun su posicion).
-/// Mas adelante esta funcion es el unico punto a cambiar para usar texturas.
+/// Es el fallback cuando el tipo de pared no tiene textura cargada.
 fn wall_color(tile: u8) -> Color {
     match tile {
         b'#' => Color::new(180, 180, 190, 255), // tipo 1: gris piedra
@@ -38,7 +42,12 @@ fn shade(color: Color, dist: f32, side: u8, light: f32) -> Color {
     )
 }
 
-pub fn draw_world(d: &mut RaylibDrawHandle, hits: &[Hit], level: &LevelDefinition) {
+pub fn draw_world(
+    d: &mut RaylibDrawHandle,
+    hits: &[Hit],
+    level: &LevelDefinition,
+    assets: &Assets,
+) {
     let half_h = WINDOW_HEIGHT / 2;
     d.draw_rectangle(0, 0, WINDOW_WIDTH, half_h, level.ceiling_color);
     d.draw_rectangle(
@@ -63,19 +72,35 @@ pub fn draw_world(d: &mut RaylibDrawHandle, hits: &[Hit], level: &LevelDefinitio
             continue;
         }
 
-        d.draw_rectangle(
-            x0,
-            top,
-            w,
-            bottom - top,
-            shade(wall_color(hit.tile), hit.dist, hit.side, level.light),
-        );
+        match assets.wall(hit.tile) {
+            // Con textura: una tira vertical de 1 px de ancho segun wall_x.
+            Some(tex) => {
+                let src =
+                    Rectangle::new(hit.wall_x * tex.width as f32, 0.0, 1.0, tex.height as f32);
+                let dest = Rectangle::new(x0 as f32, top as f32, w as f32, (bottom - top) as f32);
+                d.draw_texture_pro(
+                    tex,
+                    src,
+                    dest,
+                    Vector2::zero(),
+                    0.0,
+                    shade(Color::WHITE, hit.dist, hit.side, level.light),
+                );
+            }
+            // Sin textura: color solido de siempre.
+            None => d.draw_rectangle(
+                x0,
+                top,
+                w,
+                bottom - top,
+                shade(wall_color(hit.tile), hit.dist, hit.side, level.light),
+            ),
+        }
     }
 }
 
 // --- Billboards de entidades -------------------------------------------------
-// Representacion visual PROVISIONAL: rectangulos de color solido. Al pasar a
-// sprites PNG solo cambia el relleno de `draw_billboard`.
+// Colores de fallback mientras no existan sprites.
 pub const COIN_COLOR: Color = Color::new(240, 200, 60, 255);
 pub const ITEM_COLOR: Color = Color::new(80, 200, 255, 255);
 pub const DEPOSIT_COLOR: Color = Color::new(60, 230, 110, 255);
@@ -84,13 +109,36 @@ pub const HUNTER_COLOR: Color = Color::new(210, 60, 220, 255);
 pub const HIDEOUT_COLOR: Color = Color::new(70, 110, 240, 255);
 pub const PLAYER_COLOR: Color = Color::new(255, 255, 255, 255);
 
-/// (color, lado en celdas, cuanto baja respecto al horizonte)
+/// (color de fallback, lado en celdas, cuanto baja respecto al horizonte)
 fn entity_visual(kind: EntityKind) -> (Color, f32, f32) {
     match kind {
         EntityKind::Coin => (COIN_COLOR, 0.42, 0.22),
         EntityKind::Item => (ITEM_COLOR, 0.50, 0.18),
         EntityKind::Deposit => (DEPOSIT_COLOR, 1.00, 0.00),
         EntityKind::Hideout => (HIDEOUT_COLOR, 0.90, 0.05),
+    }
+}
+
+/// Textura del billboard y, si es un sprite animado, el frame que toca.
+/// `None` significa "todavia no hay arte": se dibuja el rectangulo de color.
+struct Billboard<'a> {
+    texture: Option<&'a Texture2D>,
+    frame: Option<Rectangle>,
+}
+
+impl<'a> Billboard<'a> {
+    fn none() -> Billboard<'a> {
+        Billboard {
+            texture: None,
+            frame: None,
+        }
+    }
+
+    fn still(texture: Option<&'a Texture2D>) -> Billboard<'a> {
+        Billboard {
+            texture,
+            frame: None,
+        }
     }
 }
 
@@ -107,6 +155,7 @@ fn draw_billboard(
     size: f32,
     y_offset: f32,
     color: Color,
+    art: Billboard,
 ) {
     let n = hits.len();
     if n == 0 {
@@ -143,20 +192,50 @@ fn draw_billboard(
     }
 
     // Las entidades se mantienen legibles aunque el nivel sea oscuro.
-    let color = shade(color, depth, 0, 1.0);
+    let tint = shade(color, depth, 0, 1.0);
+    let span = (col_end - col_start).max(1) as f32;
+
     for col in col_start.max(0)..col_end.min(n as i32) {
         if hits[col as usize].dist <= depth {
             continue; // tapado por una pared
         }
         let x0 = col * WINDOW_WIDTH / n as i32;
         let x1 = (col + 1) * WINDOW_WIDTH / n as i32;
-        d.draw_rectangle(x0, top, (x1 - x0).max(1), bottom - top, color);
+        let w = (x1 - x0).max(1);
+
+        match art.texture {
+            // Con sprite: tira vertical del PNG (respeta su transparencia).
+            Some(tex) => {
+                let full = Rectangle::new(0.0, 0.0, tex.width as f32, tex.height as f32);
+                let frame = art.frame.unwrap_or(full);
+                let u = (col - col_start) as f32 / span;
+                let src = Rectangle::new(
+                    frame.x + u * frame.width,
+                    frame.y,
+                    frame.width / span,
+                    frame.height,
+                );
+                let dest = Rectangle::new(x0 as f32, top as f32, w as f32, (bottom - top) as f32);
+                d.draw_texture_pro(
+                    tex,
+                    src,
+                    dest,
+                    Vector2::zero(),
+                    0.0,
+                    shade(Color::WHITE, depth, 0, 1.0),
+                );
+            }
+            // Sin sprite: rectangulo de color, como hasta ahora.
+            None => d.draw_rectangle(x0, top, w, bottom - top, tint),
+        }
     }
 }
 
-/// Dibuja entidades y enemigos de lejos a cerca.
+/// Dibuja entidades, enemigos y monstruo de lejos a cerca.
 /// `order` viene ordenado desde `Game` (buffer reutilizado): los indices
-/// menores que `entities.len()` son entidades; el resto, enemigos.
+/// menores que `entities.len()` son entidades; el resto, enemigos y monstruo.
+/// `anim_time` es tiempo acumulado con delta time, no un contador de frames.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_billboards(
     d: &mut RaylibDrawHandle,
     hits: &[Hit],
@@ -165,6 +244,8 @@ pub fn draw_billboards(
     enemies: &[Enemy],
     hunter: Option<&Hunter>,
     order: &[(f32, usize)],
+    assets: &Assets,
+    anim_time: f32,
 ) {
     for &(_, idx) in order {
         if idx < entities.len() {
@@ -173,14 +254,80 @@ pub fn draw_billboards(
                 continue;
             }
             let (color, size, offset) = entity_visual(e.kind);
-            draw_billboard(d, hits, player, e.x, e.y, size, offset, color);
+            let art = Billboard::still(assets.sprite(SpriteKind::from(e.kind)));
+            draw_billboard(d, hits, player, e.x, e.y, size, offset, color, art);
         } else if idx - entities.len() < enemies.len() {
             let e = &enemies[idx - entities.len()];
-            draw_billboard(d, hits, player, e.x, e.y, 0.8, 0.05, ENEMY_COLOR);
+            let art = Billboard::still(assets.sprite(SpriteKind::Enemy));
+            draw_billboard(d, hits, player, e.x, e.y, 0.8, 0.05, ENEMY_COLOR, art);
         } else if let Some(h) = hunter {
-            draw_billboard(d, hits, player, h.x, h.y, 1.0, 0.0, HUNTER_COLOR);
+            // El monstruo usa su hoja animada si existe; si no, el sprite fijo;
+            // y si tampoco, el rectangulo magenta actual.
+            let art = match assets.hunter_walk() {
+                Some(anim) => Billboard {
+                    texture: Some(&anim.sheet),
+                    frame: Some(anim.frame_rect(anim_time)),
+                },
+                None => match assets.sprite(SpriteKind::Hunter) {
+                    Some(tex) => Billboard::still(Some(tex)),
+                    None => Billboard::none(),
+                },
+            };
+            draw_billboard(d, hits, player, h.x, h.y, 1.0, 0.0, HUNTER_COLOR, art);
         }
     }
+}
+
+// --- Overlay de escondite ----------------------------------------------------
+/// Vista desde dentro del casillero: casi todo oscuro con dos rendijas.
+/// Se dibuja despues del mundo y antes del HUD, para que `HIDDEN` y
+/// `E - LEAVE` sigan leyendose por encima.
+pub fn draw_hideout_overlay(d: &mut RaylibDrawHandle, assets: &Assets) {
+    // Con arte: un PNG con transparencia en las rendijas.
+    if let Some(tex) = assets.locker_overlay.as_ref() {
+        d.draw_texture_pro(
+            tex,
+            Rectangle::new(0.0, 0.0, tex.width as f32, tex.height as f32),
+            Rectangle::new(0.0, 0.0, WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32),
+            Vector2::zero(),
+            0.0,
+            Color::WHITE,
+        );
+        return;
+    }
+
+    // Fallback geometrico: bandas opacas dejando dos rendijas horizontales.
+    let dark = Color::new(8, 8, 10, 245);
+    let h = WINDOW_HEIGHT as f32;
+    let slit_h = (h * 0.09) as i32;
+    let slit_1 = (h * 0.40) as i32;
+    let slit_2 = (h * 0.60) as i32;
+
+    d.draw_rectangle(0, 0, WINDOW_WIDTH, slit_1, dark);
+    d.draw_rectangle(
+        0,
+        slit_1 + slit_h,
+        WINDOW_WIDTH,
+        slit_2 - (slit_1 + slit_h),
+        dark,
+    );
+    d.draw_rectangle(
+        0,
+        slit_2 + slit_h,
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT - (slit_2 + slit_h),
+        dark,
+    );
+
+    // Marcos laterales: refuerzan la sensacion de estar dentro de un mueble.
+    let side = (WINDOW_WIDTH as f32 * 0.06) as i32;
+    d.draw_rectangle(0, 0, side, WINDOW_HEIGHT, dark);
+    d.draw_rectangle(WINDOW_WIDTH - side, 0, side, WINDOW_HEIGHT, dark);
+
+    // Penumbra suave sobre las propias rendijas.
+    let haze = Color::new(0, 0, 0, 70);
+    d.draw_rectangle(side, slit_1, WINDOW_WIDTH - side * 2, slit_h, haze);
+    d.draw_rectangle(side, slit_2, WINDOW_WIDTH - side * 2, slit_h, haze);
 }
 
 // --- HUD ---------------------------------------------------------------------
